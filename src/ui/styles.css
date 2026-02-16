@@ -1,0 +1,483 @@
+/* ================================================================
+   FlowDoc Plugin — Dark Theme
+   ================================================================ */
+
+/* ----- Reset & Base ----- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #ffffff;
+  background: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ----- App container ----- */
+.app {
+  padding: 24px 20px 20px;
+  max-width: 440px;
+}
+
+/* ----- Title section ----- */
+.title {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0 0 32px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #a0a0a0;
+}
+
+/* ----- Sections ----- */
+.section {
+  margin-bottom: 24px;
+}
+
+.section.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ----- Labels ----- */
+.label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+/* ----- Inputs & Selects ----- */
+.input,
+.textarea {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #ffffff;
+  transition: border-color 0.15s ease;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #666666;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.25);
+}
+
+.input:disabled,
+.textarea:disabled {
+  background: #222222;
+  color: #555555;
+  cursor: not-allowed;
+}
+
+select.input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23a0a0a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+select.input option {
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
+/* ----- Textarea ----- */
+.textarea {
+  height: auto;
+  min-height: 120px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* ----- Hint text ----- */
+.hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #888888;
+  line-height: 1.4;
+}
+
+.hint-warn {
+  color: #d4a017;
+}
+
+.hint a {
+  color: #5c9eff;
+  text-decoration: none;
+}
+
+.hint a:hover {
+  text-decoration: underline;
+}
+
+/* ----- Buttons ----- */
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.button:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-primary {
+  background: #0066cc;
+  color: #ffffff;
+}
+
+.button-primary:hover:not(:disabled) {
+  background: #0052a3;
+}
+
+.button-secondary {
+  background: #2a2a2a;
+  color: #ffffff;
+  border: 1px solid #3a3a3a;
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: #333333;
+}
+
+/* ----- Selection badge ----- */
+.selection-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #1e2d40;
+  color: #5c9eff;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.selection-badge--empty {
+  background: #2a2a2a;
+  color: #888888;
+}
+
+/* ----- Collapsible ----- */
+.collapse-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.collapse-trigger:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.collapse-trigger:hover {
+  color: #cccccc;
+}
+
+.collapse-arrow {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  color: #a0a0a0;
+}
+
+.collapse-arrow--open {
+  transform: rotate(90deg);
+}
+
+.collapse-content {
+  margin-top: 8px;
+}
+
+/* ----- Loading overlay (blocking, no white flash) ----- */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+}
+
+.loading-overlay-card {
+  width: 100%;
+  max-width: 400px;
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 20px;
+  border: 3px solid #3a3a3a;
+  border-top-color: #0066cc;
+  border-radius: 50%;
+  animation: loading-spin 0.8s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.loading-overlay-progress {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: #a0a0a0;
+}
+
+/* ----- Progress (inline, when not using overlay) ----- */
+.progress {
+  padding: 12px 16px;
+  background: #2a2a2a;
+  border-radius: 8px;
+}
+
+.progress-bar {
+  height: 3px;
+  background: #0066cc;
+  border-radius: 2px;
+  margin-bottom: 10px;
+  animation: progress-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.progress-text {
+  margin: 0;
+  font-size: 13px;
+  color: #a0a0a0;
+}
+
+/* ----- Banners (success/error) ----- */
+.success-banner,
+.error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.success-banner {
+  background: #1a2e1a;
+  border: 1px solid #2e5a2e;
+}
+
+.error-banner {
+  background: #2e1a1a;
+  border: 1px solid #5a2e2e;
+}
+
+.success-text,
+.error-text {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.success-text {
+  color: #66cc66;
+}
+
+.error-text {
+  color: #ff6b6b;
+}
+
+.banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font-size: 18px;
+  line-height: 1;
+  color: #666666;
+  cursor: pointer;
+}
+
+.banner-dismiss:hover {
+  color: #ffffff;
+}
+
+/* ----- Edge case results ----- */
+.edge-results {
+  background: #222222;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.edge-results-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.missing-list {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.missing-item {
+  padding: 10px 12px;
+  background: #2a2a2a;
+  border-radius: 8px;
+  border-left: 3px solid #555555;
+}
+
+.missing-item--high {
+  border-left-color: #ff6b6b;
+}
+
+.missing-item--medium {
+  border-left-color: #ffa94d;
+}
+
+.missing-item--low {
+  border-left-color: #66cc66;
+}
+
+.missing-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #ffffff;
+  margin-right: 8px;
+}
+
+.missing-reason {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #a0a0a0;
+}
+
+.severity {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.severity-high {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+}
+
+.severity-medium {
+  background: rgba(255, 169, 77, 0.15);
+  color: #ffa94d;
+}
+
+.severity-low {
+  background: rgba(102, 204, 102, 0.15);
+  color: #66cc66;
+}
+
+.edge-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edge-actions .button {
+  height: 40px;
+  font-size: 14px;
+}
+
+/* ----- Focus accessibility for all interactive ----- */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 1px;
+}

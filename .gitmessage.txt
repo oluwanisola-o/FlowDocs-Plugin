@@ -1,0 +1,7 @@
+Initial commit: FlowDocs Figma plugin
+
+AI-powered design handoff documentation plugin for Figma.
+- Handoff doc generation with section cards
+- Flow analysis with formatted section cards
+- Missing screen generation with visual style matching
+- Multi-provider support (Anthropic, OpenAI, Google)

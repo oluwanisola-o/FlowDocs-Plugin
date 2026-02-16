@@ -1,0 +1,21 @@
+{
+  "name": "FlowDoc",
+  "id": "flowdoc-figma-plugin",
+  "api": "1.0.0",
+  "main": "src/main/main.ts",
+  "ui": "src/ui/ui.tsx",
+  "documentAccess": "dynamic-page",
+  "editorType": ["figma", "figjam"],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.anthropic.com",
+      "https://api.openai.com",
+      "https://generativelanguage.googleapis.com",
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "ws://localhost:3002",
+      "http://localhost:7242"
+    ],
+    "reasoning": "AI APIs for documentation generation. localhost:3001 is the dev CORS proxy. localhost:3002 is the plugma dev server (fixed port for Figma CSP)."
+  }
+}

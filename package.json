@@ -1,0 +1,29 @@
+{
+  "name": "flowdoc",
+  "version": "1.0.0",
+  "description": "FlowDoc Figma Plugin",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "plugma dev --port 3002",
+    "build": "plugma build",
+    "release": "plugma release",
+    "lint": "tsc --noEmit",
+    "postinstall": "node scripts/patch-cross-dirname.mjs && node scripts/patch-plugma-port.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.102.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "globals": "^15.12.0",
+    "plugma": "^2.0.0",
+    "tslib": "^2.7.0",
+    "typescript": "~5.6.3",
+    "vite": "^7.0.0"
+  }
+}
