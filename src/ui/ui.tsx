@@ -33,6 +33,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import './styles.css';
 import App from './App';
 
@@ -72,6 +73,7 @@ if (root) {
   createRoot(root).render(
     <ErrorBoundary>
       <App />
+      <SpeedInsights />
     </ErrorBoundary>
   );
 }
