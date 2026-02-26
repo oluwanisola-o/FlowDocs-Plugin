@@ -1,4 +1,4 @@
-import type { DocSection } from './types';
+import type { DocSection, MissingScreenItem } from './types';
 
 const FRAME_WIDTH = 600;
 const PADDING = 24;
@@ -104,11 +104,13 @@ const SECTION_CARD_PADDING = 20;
 const SECTION_CARD_GAP = 16;
 const SCREEN_TO_FIRST_CARD_GAP = 40;
 
-/** Section header patterns (order matters: first match wins). */
+/** Section header patterns (order matters: first match wins). Optional sections parsed when present. */
 const SECTION_HEADERS = [
   { key: 'Purpose', pattern: /^#+\s*Purpose\s*$/i },
   { key: 'Use Cases', pattern: /^#+\s*Use Cases\s*$/i },
   { key: 'Edge Cases & Results', pattern: /^#+\s*Edge Cases\s*(&\s*Results)?\s*$/i },
+  { key: 'Platform Constraints', pattern: /^#+\s*Platform\s*Constraints\s*(\(iOS\)|\(Android\))?\s*$/i },
+  { key: 'Data Logic & Edge Cases', pattern: /^#+\s*Data\s*Logic\s*(&\s*Edge\s*Cases)?\s*$/i },
   { key: 'Link to Component Library', pattern: /^#+\s*Link to Component Library\s*$/i },
   { key: 'Animations & Interactions', pattern: /^#+\s*Animations\s*(&\s*Interactions)?\s*$/i },
   { key: 'Attachments', pattern: /^#+\s*Attachments\s*$/i },
@@ -123,6 +125,8 @@ export function parseDocSections(fullDoc: string): Record<string, string> {
     'Purpose': '',
     'Use Cases': '',
     'Edge Cases & Results': '',
+    'Platform Constraints': '',
+    'Data Logic & Edge Cases': '',
     'Link to Component Library': '_____________________ (add link here)',
     'Animations & Interactions': '',
     'Attachments': 'Design specs: _____________________ (add link)\n\nAssets: _____________________ (add link)\n\nOther: _____________________ (add link)',
@@ -160,6 +164,43 @@ export function parseDocSections(fullDoc: string): Record<string, string> {
     sections[key] = v;
   }
   return sections;
+}
+
+/**
+ * Estimate the height of text when wrapped to a target width.
+ * Handles multi-line text by estimating wrap per line independently,
+ * rather than multiplying total height by the max-line wrap factor.
+ */
+function estimateWrappedHeight(
+  text: string,
+  naturalWidth: number,
+  naturalHeight: number,
+  targetWidth: number
+): number {
+  if (naturalWidth <= targetWidth) return naturalHeight;
+
+  const lines = text.split('\n');
+  const lineCount = lines.length;
+  if (lineCount === 0) return naturalHeight;
+
+  // Single-line height derived from the natural measurement
+  const singleLineHeight = naturalHeight / lineCount;
+
+  // Average character width from the longest line
+  const longestLine = lines.reduce((a, b) => (a.length >= b.length ? a : b), '');
+  const avgCharWidth = longestLine.length > 0 ? naturalWidth / longestLine.length : 8;
+  const charsPerWrappedLine = Math.max(1, Math.floor(targetWidth / avgCharWidth));
+
+  let totalWrappedLines = 0;
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      totalWrappedLines += 1;
+    } else {
+      totalWrappedLines += Math.max(1, Math.ceil(line.length / charsPerWrappedLine));
+    }
+  }
+
+  return Math.max(singleLineHeight, totalWrappedLines * singleLineHeight);
 }
 
 /** Create one section card (400px width). Load fonts first, then Auto Layout + textAutoResize HEIGHT so Figma sizes card to content. */
@@ -202,18 +243,14 @@ async function createSectionCard(
     },
   ];
 
-  // 3. Title: WIDTH_AND_HEIGHT to get natural size, then calculate wrapped height
+  // 3. Title: measure per-line and calculate wrapped height
   const titleNode = figma.createText();
   titleNode.fontName = boldFont;
   titleNode.fontSize = 16;
   titleNode.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
   titleNode.textAutoResize = 'WIDTH_AND_HEIGHT';
   titleNode.characters = title;
-  const naturalTitleWidth = titleNode.width;
-  const naturalTitleHeight = titleNode.height;
-  const wrappedTitleHeight = naturalTitleWidth > contentWidth
-    ? naturalTitleHeight * Math.ceil(naturalTitleWidth / contentWidth)
-    : naturalTitleHeight;
+  const wrappedTitleHeight = estimateWrappedHeight(title, titleNode.width, titleNode.height, contentWidth);
   titleNode.textAutoResize = 'NONE';
   titleNode.resize(contentWidth, wrappedTitleHeight);
   card.appendChild(titleNode);
@@ -231,19 +268,16 @@ async function createSectionCard(
   divider.layoutGrow = 0;
   divider.layoutSizingHorizontal = 'FILL';
 
-  // 5. Content: WIDTH_AND_HEIGHT to get natural size, then calculate wrapped height
+  // 5. Content: measure per-line and calculate wrapped height
+  const contentText = content || '—';
   const contentNode = figma.createText();
   contentNode.fontName = font;
   contentNode.fontSize = 14;
   contentNode.lineHeight = { value: 14 * 1.6, unit: 'PIXELS' };
   contentNode.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.2 } }];
   contentNode.textAutoResize = 'WIDTH_AND_HEIGHT';
-  contentNode.characters = content || '—';
-  const naturalContentWidth = contentNode.width;
-  const naturalContentHeight = contentNode.height;
-  const wrappedContentHeight = naturalContentWidth > contentWidth
-    ? naturalContentHeight * Math.ceil(naturalContentWidth / contentWidth)
-    : naturalContentHeight;
+  contentNode.characters = contentText;
+  const wrappedContentHeight = estimateWrappedHeight(contentText, contentNode.width, contentNode.height, contentWidth);
   contentNode.textAutoResize = 'NONE';
   contentNode.resize(contentWidth, wrappedContentHeight);
   card.appendChild(contentNode);
@@ -289,10 +323,12 @@ export async function createDocCardsForScreen(
   }
 
   const sections = parseDocSections(documentation);
-  const titles = [
+  const titles: string[] = [
     'Purpose',
     'Use Cases',
     'Edge Cases & Results',
+    ...(sections['Platform Constraints']?.trim() ? ['Platform Constraints'] : []),
+    ...(sections['Data Logic & Edge Cases']?.trim() ? ['Data Logic & Edge Cases'] : []),
     'Link to Component Library',
     'Animations & Interactions',
     'Attachments',
@@ -418,6 +454,84 @@ export async function createFlowDocCards(
     cards.push(card);
     currentY += card.height + SECTION_CARD_GAP;
   }
+  return cards;
+}
+
+/**
+ * Create cards for missing screens identified during flow analysis.
+ * Each card shows the screen name, severity, reason, and components needed.
+ * Placed below the flow doc cards.
+ */
+export async function createMissingScreenCards(
+  missingScreens: MissingScreenItem[],
+  anchorBounds: { x: number; y: number; width: number; height: number } | null
+): Promise<FrameNode[]> {
+  if (missingScreens.length === 0) return [];
+
+  let font: FontName = { family: 'Inter', style: 'Regular' };
+  let boldFont: FontName = { family: 'Inter', style: 'Bold' };
+  try {
+    await figma.loadFontAsync(font);
+    await figma.loadFontAsync(boldFont);
+  } catch {
+    const available = await figma.listAvailableFontsAsync();
+    const fallback = available[0];
+    if (fallback) {
+      font = { family: fallback.fontName.family, style: fallback.fontName.style };
+      boldFont = font;
+      await figma.loadFontAsync(font);
+    }
+  }
+
+  const startX = anchorBounds
+    ? anchorBounds.x
+    : Math.round(figma.viewport.center.x - SECTION_CARD_WIDTH / 2);
+  let currentY = anchorBounds
+    ? anchorBounds.y + anchorBounds.height + SECTION_CARD_GAP * 2
+    : Math.round(figma.viewport.center.y);
+
+  const cards: FrameNode[] = [];
+
+  // Title card: "Missing Screens (N found)"
+  const headerContent = missingScreens.map((s, i) =>
+    `${i + 1}. ${s.name} [${s.severity.toUpperCase()}]\n   ${s.reason}`
+  ).join('\n\n');
+  const headerCard = await createSectionCard(
+    `Missing Screens (${missingScreens.length} found)`,
+    headerContent,
+    { x: startX, y: currentY },
+    font,
+    boldFont
+  );
+  cards.push(headerCard);
+  currentY += headerCard.height + SECTION_CARD_GAP;
+
+  // Individual cards per missing screen
+  for (const screen of missingScreens) {
+    const severityLabel = screen.severity === 'high' ? 'HIGH PRIORITY'
+      : screen.severity === 'medium' ? 'MEDIUM PRIORITY' : 'LOW PRIORITY';
+    const content = [
+      `Severity: ${severityLabel}`,
+      '',
+      screen.reason,
+      '',
+      `Reference: ${screen.reference_screen}`,
+      screen.components_needed.length > 0
+        ? `Components needed: ${screen.components_needed.join(', ')}`
+        : '',
+    ].filter(Boolean).join('\n');
+
+    const card = await createSectionCard(
+      screen.name,
+      content,
+      { x: startX, y: currentY },
+      font,
+      boldFont
+    );
+    cards.push(card);
+    currentY += card.height + SECTION_CARD_GAP;
+  }
+
   return cards;
 }
 

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ODEM — Error & Offline screens (brainstorm only, not part of plugin)</title>
+  <style>
+    /* ================================================================
+       ODEM — Brainstorm file. Not imported by the FlowDocs plugin.
+       Design ref: Track Breakfast by search / Edit Food details
+       ================================================================ */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px 16px 48px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+      color: #e5e5e5;
+      background: #0d0d0d;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b6b6b;
+      margin: 0 0 8px;
+    }
+    .screen {
+      max-width: 390px;
+      margin: 0 auto 48px;
+      background: #1a1a1a;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .screen-label {
+      font-size: 12px;
+      color: #6b6b6b;
+      margin-bottom: 8px;
+      padding-left: 4px;
+    }
+    /* Status bar */
+    .statusbar {
+      height: 44px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #1a1a1a;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .statusbar-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .statusbar svg { width: 18px; height: 18px; }
+    /* Top nav */
+    .top {
+      height: 56px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #1a1a1a;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .top button, .top a {
+      background: none;
+      border: none;
+      color: #fff;
+      padding: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+    .top .center { font-weight: 600; font-size: 17px; }
+    .top .cancel { color: #4a9f6a; font-weight: 500; font-size: 16px; }
+    /* Search */
+    .search-wrap {
+      padding: 12px 16px;
+      background: #1a1a1a;
+    }
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 44px;
+      padding: 0 14px;
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      transition: border-color 0.2s;
+    }
+    .search-bar.focused { border-color: #3d7a4d; box-shadow: 0 0 0 1px #3d7a4d; }
+    .search-bar svg { flex-shrink: 0; color: #888; }
+    .search-bar input {
+      flex: 1;
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      outline: none;
+    }
+    .search-bar input::placeholder { color: #666; }
+    /* Error message block */
+    .error-block {
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .error-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      color: #c4a84a;
+    }
+    .error-message {
+      font-size: 16px;
+      color: #b0b0b0;
+      margin: 0 0 24px;
+      line-height: 1.5;
+      max-width: 280px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .retry-btn {
+      display: inline-block;
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      color: #4a9f6a;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .retry-btn:hover { color: #5eb87a; text-decoration: underline; }
+    /* Offline indicator */
+    .offline-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #2a2520;
+      border-bottom: 1px solid #3a3520;
+      color: #c4a84a;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .offline-indicator svg { flex-shrink: 0; }
+    /* Cached results */
+    .cached-section {
+      padding: 16px;
+      background: #1a1a1a;
+    }
+    .cached-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #888;
+      margin: 0 0 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cached-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .cached-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #2a2a2a;
+      color: #e5e5e5;
+      font-size: 15px;
+    }
+    .cached-list li:last-child { border-bottom: none; }
+    .cached-list .icon-wrap { color: #555; }
+    /* Save error: form context */
+    .form-context {
+      padding: 24px 16px;
+      color: #888;
+      font-size: 13px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+  </style>
+</head>
+<body>
+  <p class="page-title">ODEM — Brainstorm only (does not affect plugin)</p>
+
+  <!-- ========== 1. Search Network Error ========== -->
+  <p class="screen-label">1. Search Network Error — when search fails due to network</p>
+  <div class="screen" data-screen="search-network-error">
+    <div class="statusbar">
+      <span>9:41</span>
+      <div class="statusbar-right">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="12" height="8" rx="1"/><path d="M6 6h2v4M10 6h2v4M14 6h2v4" stroke="#0d0d0d" stroke-width="1.5"/></svg>
+      </div>
+    </div>
+    <div class="top">
+      <button type="button" aria-label="Close">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="center">Frühstück</span>
+      <a href="#" class="cancel">Cancel</a>
+    </div>
+    <div class="search-wrap">
+      <div class="search-bar focused">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" value="Rice" placeholder="Food, meal, brand" readonly />
+      </div>
+    </div>
+    <div class="error-block">
+      <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <p class="error-message">Your data could not be loaded, please check your internet connection.</p>
+      <button type="button" class="retry-btn">Retry</button>
+    </div>
+  </div>
+
+  <!-- ========== 2. Save Error State ========== -->
+  <p class="screen-label">2. Save Error State — when meal save operation fails (ref: Edit Food details)</p>
+  <div class="screen" data-screen="save-error">
+    <div class="statusbar">
+      <span>9:41</span>
+      <div class="statusbar-right">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="12" height="8" rx="1"/><path d="M6 6h2v4M10 6h2v4M14 6h2v4" stroke="#0d0d0d" stroke-width="1.5"/></svg>
+      </div>
+    </div>
+    <div class="top">
+      <button type="button" aria-label="Close">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="center">Edit Food</span>
+      <button type="button" aria-label="More">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+      </button>
+    </div>
+    <div class="form-context">Rice, 200 g · 260 kcal</div>
+    <div class="error-block">
+      <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <p class="error-message">We couldn’t save your changes. Check your connection and try again.</p>
+      <button type="button" class="retry-btn">Retry</button>
+    </div>
+  </div>
+
+  <!-- ========== 3. Offline Mode ========== -->
+  <p class="screen-label">3. Offline Mode — search without internet (cached results)</p>
+  <div class="screen" data-screen="offline">
+    <div class="statusbar">
+      <span>9:41</span>
+      <div class="statusbar-right">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="12" height="8" rx="1"/><path d="M6 6h2v4M10 6h2v4M14 6h2v4" stroke="#0d0d0d" stroke-width="1.5"/></svg>
+      </div>
+    </div>
+    <div class="top">
+      <button type="button" aria-label="Close">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="center">Frühstück</span>
+      <button type="button" aria-label="More">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+      </button>
+    </div>
+    <div class="offline-indicator">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l20 20"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5.12 12.99a9 9 0 0 1 12.76 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/></svg>
+      You’re offline — showing cached results
+    </div>
+    <div class="search-wrap">
+      <div class="search-bar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Food, meal, brand" readonly />
+      </div>
+    </div>
+    <div class="error-block">
+      <p class="error-message">No connection. Search will work when you’re back online.</p>
+    </div>
+    <div class="cached-section">
+      <h3>Cached results</h3>
+      <ul class="cached-list">
+        <li><span class="icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg></span> Rice, cooked</li>
+        <li><span class="icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg></span> Rice bowl</li>
+        <li><span class="icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg></span> Brown rice</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ========== Icon & illustration sources (Alama / Lifesum style) ========== -->
+  <section style="max-width: 390px; margin: 0 auto; padding: 24px 0; border-top: 1px solid #2a2a2a;">
+    <p class="page-title">Where to get icons & illustrations</p>
+    <p style="font-size: 13px; color: #888; margin: 0 0 12px;">
+      This file uses inline SVGs (Feather-style). For production, use assets that match Alama/Lifesum’s friendly, minimal look:
+    </p>
+    <ul style="font-size: 13px; color: #a0a0a0; margin: 0; padding-left: 20px; line-height: 1.8;">
+      <li><strong style="color: #b0b0b0;">Icons</strong> — <a href="https://feathericons.com" target="_blank" rel="noopener" style="color: #4a9f6a;">Feather Icons</a>, <a href="https://heroicons.com" target="_blank" rel="noopener" style="color: #4a9f6a;">Heroicons</a>, <a href="https://fonts.google.com/icons" target="_blank" rel="noopener" style="color: #4a9f6a;">Material Symbols</a>: thin strokes, 24×24, work well on dark UI.</li>
+      <li><strong style="color: #b0b0b0;">Offline / error illustrations</strong> — <a href="https://undraw.co" target="_blank" rel="noopener" style="color: #4a9f6a;">unDraw</a> (editable color), <a href="https://blush.design" target="_blank" rel="noopener" style="color: #4a9f6a;">Blush</a>, <a href="https://www.freepik.com" target="_blank" rel="noopener" style="color: #4a9f6a;">Freepik</a>: simple scenes (e.g. “no connection”, “something went wrong”). Pick one style and stick to it.</li>
+      <li><strong style="color: #b0b0b0;">Lifesum/Alama-style</strong> — Rounded, soft shapes and limited palette (e.g. your green + neutral). Use a single illustration set (e.g. from Blush or unDraw) for all error/empty states so the app feels consistent.</li>
+    </ul>
+  </section>
+</body>
+</html>

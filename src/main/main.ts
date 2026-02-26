@@ -11,35 +11,58 @@ console.log('========================================');
 import type { UIMessage, MainMessage, DocSection, MissingScreenItem, DesignSystemData, AIProvider, VisualScreenSpec, FrameScreenshot } from './types';
 import { extractFrameData, getSelectedFramesAndComponents } from './frameExtract';
 import { extractDesignSystem, getEmptyDesignSystem } from './designSystem';
-import { createDocFrame, createDocCardsForScreen, createFlowDocCards, getBounds } from './canvas';
-import { findFrameByName } from './screenFromSpec';
-import { buildVisualScreen, loadFonts } from './visualScreenBuilder';
+import { createDocFrame, createDocCardsForScreen, createFlowDocCards, createMissingScreenCards, getBounds } from './canvas';
 
 // --- AI API constants ---
 const MAX_TOKENS = 4000;
 const ANTHROPIC_VERSION = '2023-06-01';
 const PROMPT_CACHING_BETA = 'prompt-caching-2024-07-31';
 
-/**
- * __DEV_PROXY_BASE__ is injected by Vite at compile time (see vite.config.ts):
- *   - dev:  "http://localhost:3001"  → routes through local proxy → no CORS
- *   - prod: undefined → direct API calls from Figma sandbox → no CORS
- */
+/** In dev, use local proxy on 3001 (path-based forwarding). */
 declare const __DEV_PROXY_BASE__: string;
-const PROXY_BASE: string =
-  typeof __DEV_PROXY_BASE__ !== 'undefined' ? __DEV_PROXY_BASE__ : '';
+const PROXY_BASE =
+  typeof __DEV_PROXY_BASE__ !== 'undefined' && __DEV_PROXY_BASE__
+    ? 'http://localhost:3001'
+    : '';
 
-/** Per-provider endpoint URLs (dev proxy or direct). */
+/** Production: Vercel backend proxy (single envelope endpoint). Replace YOUR-APP with your Vercel app name. */
+const PRODUCTION_PROXY_BASE = 'https://YOUR-APP.vercel.app';
+
+/** Per-provider API endpoints. Dev: localhost path-based; production: use Vercel proxy via callViaVercelProxy. */
 function getEndpoint(prov: AIProvider, model?: string, apiKey?: string): string {
+  if (PROXY_BASE) {
+    switch (prov) {
+      case 'anthropic':
+        return `${PROXY_BASE}/anthropic/v1/messages`;
+      case 'openai':
+        return `${PROXY_BASE}/openai/v1/chat/completions`;
+      case 'google':
+        return `${PROXY_BASE}/google/v1beta/models/${model}:generateContent`;
+    }
+  }
   switch (prov) {
     case 'anthropic':
-      return PROXY_BASE ? `${PROXY_BASE}/api/anthropic` : 'https://api.anthropic.com/v1/messages';
+      return 'https://api.anthropic.com/v1/messages';
     case 'openai':
-      return PROXY_BASE ? `${PROXY_BASE}/api/openai` : 'https://api.openai.com/v1/chat/completions';
+      return 'https://api.openai.com/v1/chat/completions';
     case 'google':
-      if (PROXY_BASE) return `${PROXY_BASE}/api/gemini`;
       return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   }
+}
+
+/** Call Vercel backend proxy with envelope { provider, apiKey, model, body }. Used in production to avoid CORS. */
+async function callViaVercelProxy(
+  provider: AIProvider,
+  apiKey: string,
+  model: string,
+  body: object
+): Promise<Response> {
+  const url = `${PRODUCTION_PROXY_BASE}/api/proxy`;
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, apiKey, model, body }),
+  });
 }
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
@@ -149,22 +172,28 @@ async function callAnthropic(
     { type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } },
     { type: 'text' as const, text: contextBlock, cache_control: { type: 'ephemeral' as const } },
   ];
-  const url = getEndpoint('anthropic');
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': ANTHROPIC_VERSION,
-      'anthropic-beta': PROMPT_CACHING_BETA,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: MAX_TOKENS,
-      system: systemBlocks,
-      messages: [{ role: 'user' as const, content: userMessage }],
-    }),
-  });
+  const body = {
+    model,
+    max_tokens: MAX_TOKENS,
+    system: systemBlocks,
+    messages: [{ role: 'user' as const, content: userMessage }],
+  };
+  let response: Response;
+  if (PROXY_BASE) {
+    const url = getEndpoint('anthropic');
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': ANTHROPIC_VERSION,
+        'anthropic-beta': PROMPT_CACHING_BETA,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } else {
+    response = await callViaVercelProxy('anthropic', key, model, body);
+  }
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`API error ${response.status}: ${errorText}`);
@@ -190,23 +219,29 @@ async function callOpenAI(
   userMessage: string
 ): Promise<{ text: string }> {
   const contextBlock = buildContextBlock(projContext, designSystem);
-  const url = getEndpoint('openai');
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: MAX_TOKENS,
-      messages: [
-        { role: 'system' as const, content: SYSTEM_PROMPT },
-        { role: 'system' as const, content: contextBlock },
-        { role: 'user' as const, content: userMessage },
-      ],
-    }),
-  });
+  const body = {
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [
+      { role: 'system' as const, content: SYSTEM_PROMPT },
+      { role: 'system' as const, content: contextBlock },
+      { role: 'user' as const, content: userMessage },
+    ],
+  };
+  let response: Response;
+  if (PROXY_BASE) {
+    const url = getEndpoint('openai');
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } else {
+    response = await callViaVercelProxy('openai', key, model, body);
+  }
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`API error ${response.status}: ${errorText}`);
@@ -225,22 +260,19 @@ async function callGemini(
   userMessage: string
 ): Promise<{ text: string }> {
   const contextBlock = buildContextBlock(projContext, designSystem);
-  const url = getEndpoint('google', model, key);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  // In dev mode the proxy needs model + key to construct the real Gemini URL
+  const body = {
+    systemInstruction: { parts: [{ text: `${SYSTEM_PROMPT}\n\n${contextBlock}` }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: { maxOutputTokens: MAX_TOKENS },
+  };
+  let response: Response;
   if (PROXY_BASE) {
-    headers['X-Gemini-Model'] = model;
-    headers['X-Gemini-Key'] = key;
+    const url = getEndpoint('google', model, key);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Google-Api-Key': key };
+    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  } else {
+    response = await callViaVercelProxy('google', key, model, body);
   }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: `${SYSTEM_PROMPT}\n\n${contextBlock}` }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: { maxOutputTokens: MAX_TOKENS },
-    }),
-  });
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`API error ${response.status}: ${errorText}`);
@@ -275,185 +307,26 @@ async function callAI(
 }
 
 // ---------------------------------------------------------------------------
-// Image-capable AI callers (for screenshot-based screen generation)
-// ---------------------------------------------------------------------------
-
-type ImageAttachment = { base64: string; mediaType: 'image/png' };
-
-async function callAnthropicWithImages(
-  key: string,
-  model: string,
-  systemPrompt: string,
-  userText: string,
-  images: ImageAttachment[]
-): Promise<{ text: string }> {
-  const userContent: Array<Record<string, unknown>> = [];
-  for (const img of images) {
-    userContent.push({
-      type: 'image',
-      source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
-    });
-  }
-  userContent.push({ type: 'text', text: userText });
-
-  const url = getEndpoint('anthropic');
-  const headers: Record<string, string> = {
-    'x-api-key': key,
-    'anthropic-version': ANTHROPIC_VERSION,
-    'content-type': 'application/json',
-  };
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model,
-      max_tokens: MAX_TOKENS,
-      system: [{ type: 'text', text: systemPrompt }],
-      messages: [{ role: 'user', content: userContent }],
-    }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error ${response.status}: ${errorText}`);
-  }
-  const data = (await response.json()) as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  return { text: data.content?.find((c) => c.type === 'text')?.text ?? '' };
-}
-
-async function callOpenAIWithImages(
-  key: string,
-  model: string,
-  systemPrompt: string,
-  userText: string,
-  images: ImageAttachment[]
-): Promise<{ text: string }> {
-  const userContent: Array<Record<string, unknown>> = [];
-  for (const img of images) {
-    userContent.push({
-      type: 'image_url',
-      image_url: { url: `data:${img.mediaType};base64,${img.base64}` },
-    });
-  }
-  userContent.push({ type: 'text', text: userText });
-
-  const url = getEndpoint('openai');
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: MAX_TOKENS,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error ${response.status}: ${errorText}`);
-  }
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return { text: data.choices?.[0]?.message?.content ?? '' };
-}
-
-async function callGeminiWithImages(
-  key: string,
-  model: string,
-  systemPrompt: string,
-  userText: string,
-  images: ImageAttachment[]
-): Promise<{ text: string }> {
-  const parts: Array<Record<string, unknown>> = [];
-  for (const img of images) {
-    parts.push({ inline_data: { mime_type: img.mediaType, data: img.base64 } });
-  }
-  parts.push({ text: userText });
-
-  const url = getEndpoint('google', model, key);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (PROXY_BASE) {
-    headers['X-Gemini-Model'] = model;
-    headers['X-Gemini-Key'] = key;
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts }],
-      generationConfig: { maxOutputTokens: MAX_TOKENS },
-    }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error ${response.status}: ${errorText}`);
-  }
-  const data = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  return { text: data.candidates?.[0]?.content?.parts?.[0]?.text ?? '' };
-}
-
-/** Unified image-capable dispatcher. */
-async function callAIWithImages(
-  prov: AIProvider,
-  key: string,
-  model: string,
-  systemPrompt: string,
-  userText: string,
-  images: ImageAttachment[]
-): Promise<{ text: string }> {
-  switch (prov) {
-    case 'anthropic':
-      return callAnthropicWithImages(key, model, systemPrompt, userText, images);
-    case 'openai':
-      return callOpenAIWithImages(key, model, systemPrompt, userText, images);
-    case 'google':
-      return callGeminiWithImages(key, model, systemPrompt, userText, images);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Screenshot extraction — export selected frames as base64 PNG
-// ---------------------------------------------------------------------------
-
-async function captureScreenshots(nodes: readonly SceneNode[]): Promise<FrameScreenshot[]> {
-  const screenshots: FrameScreenshot[] = [];
-  for (const node of nodes) {
-    if (!('exportAsync' in node)) continue;
-    try {
-      const bytes = await (node as FrameNode).exportAsync({
-        format: 'PNG',
-        constraint: { type: 'SCALE', value: 2 },
-      });
-      const base64 = figma.base64Encode(bytes);
-      screenshots.push({
-        name: node.name,
-        width: Math.round(node.width),
-        height: Math.round(node.height),
-        base64,
-      });
-    } catch (err) {
-      console.warn(`[FlowDoc] Could not capture screenshot of "${node.name}":`, err);
-    }
-  }
-  return screenshots;
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function getUserFriendlyError(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)) || 'Unknown error';
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message || 'Unknown error';
+  } else if (error && typeof error === 'object') {
+    const obj = error as Record<string, unknown>;
+    message =
+      (typeof obj.message === 'string' && obj.message) ||
+      (typeof obj.error === 'string' && obj.error) ||
+      (typeof obj.reason === 'string' && obj.reason) ||
+      (typeof obj.statusText === 'string' && obj.statusText) ||
+      (typeof obj.status === 'number' ? `Request failed with status ${obj.status}` : null) ||
+      'Something went wrong. Please try again.';
+  } else {
+    message = String(error) || 'Unknown error';
+  }
+  if (message === '[object Object]') message = 'Something went wrong. Please try again.';
   if (message.includes('401') || message.toLowerCase().includes('invalid api key') || message.toLowerCase().includes('incorrect api key')) {
     return 'Invalid API key. Please check your key and try again.';
   }
@@ -514,8 +387,6 @@ let currentProvider: AIProvider = 'anthropic';
 // even when the user has deselected frames.
 let cachedDesignSystem: DesignSystemData | null = null;
 let cachedFrameData: ReturnType<typeof extractFrameData> | null = null;
-let cachedScreenshots: FrameScreenshot[] = [];
-/** Stores the actual SceneNode references for screenshot capture (needed for exportAsync). */
 let cachedNodes: SceneNode[] = [];
 
 function sendToUI(msg: MainMessage) {
@@ -540,7 +411,8 @@ async function runScanOneScreen(
   frameData: ReturnType<typeof extractFrameData>[number],
   designSystem: DesignSystemData,
   requestIndex: number,
-  model: string
+  model: string,
+  options: { includePlatformConstraints: boolean; includeDataLogic: boolean }
 ): Promise<string> {
   const dataBlock = `Name: ${frameData.name}
 Dimensions: ${frameData.width}x${frameData.height}
@@ -548,44 +420,63 @@ Components: ${frameData.componentNames.join(', ') || 'none'}
 Layer structure:
 ${frameData.layerStructure}`;
 
-  const userMessage = `Document this screen for developer handoff. Be CONCISE. Output ONLY these 6 sections with these exact headers. Do NOT include "Components Used".
+  const sections: string[] = [
+    '## Purpose\n[1-2 sentence description of what this screen does]',
+    '## Use Cases\nPrimary: [main flow]\nSecondary: [alternative flow]',
+    '## Edge Cases & Results\nLoading state: [description]\nError state: [description]\nEmpty state: [description]\nSuccess state: [description]\nNetwork offline: [description]',
+  ];
+  if (options.includePlatformConstraints) {
+    sections.push(
+      `## Platform Constraints ([iOS or Android])
+Infer platform from frame name or dimensions (e.g. 375x812 suggests iOS). Use header "## Platform Constraints (iOS)" or "## Platform Constraints (Android)". 3-5 bullets max:
+- Safe Area: [content in notch/home indicator zones?]
+- Navigation: [back button, gesture support]
+- Status Bar: [scroll behavior]
+- Platform patterns: [flag mismatches if any]`
+    );
+  }
+  if (options.includeDataLogic) {
+    sections.push(
+      `## Data Logic & Edge Cases
+3-5 bullets max. Only include if relevant:
+- Text fields: [max length/truncation rules]
+- Dynamic content: [empty/loading/error states]
+- Status badges: [real-time update behavior]
+- Lists/grids: [pagination/infinite scroll]`
+    );
+  }
+  sections.push(
+    '## Link to Component Library\n_____________________ (add link here)',
+    `## Animations & Interactions
+[interaction] - [result]
+[animation] - [timing]
+
+Animation outcome reference: _____________________ (add link)
+Prototype demo (ProtoPie/Rive): _____________________ (add link)
+Note: Some animations need to be felt (e.g., vibration effects) - try the prototype`,
+    '## Attachments\nDesign specs: _____________________ (add link)\nAssets: _____________________ (add link)\nOther: _____________________ (add link)'
+  );
+
+  const sectionCount = 6 + (options.includePlatformConstraints ? 1 : 0) + (options.includeDataLogic ? 1 : 0);
+  let additionalBlock = '';
+  if (options.includePlatformConstraints || options.includeDataLogic) {
+    additionalBlock = `
+
+Additionally analyze (keep CONCISE, 3-5 bullets per section):
+${options.includePlatformConstraints ? '- Platform: Infer iOS vs Android from frame name/dimensions. Check safe area, native navigation, platform guidelines. Only include section if relevant.' : ''}
+${options.includeDataLogic ? '- Data: Identify text fields, dynamic content, status indicators. Suggest edge cases: long text, empty/loading/error states. Only include section if relevant.' : ''}`;
+  }
+
+  const userMessage = `Document this screen for developer handoff. Be CONCISE. Output ONLY these ${sectionCount} sections with these exact headers. Do NOT include "Components Used".
 
 Frame data:
 ${dataBlock}
 
 Use EXACTLY these section headers (with ##) and structure. Leave "_____________________ (add link)" where the designer adds links.
 
-## Purpose
-[1-2 sentence description of what this screen does]
+${sections.join('\n\n')}
 
-## Use Cases
-Primary: [main flow]
-Secondary: [alternative flow]
-
-## Edge Cases & Results
-Loading state: [description]
-Error state: [description]
-Empty state: [description]
-Success state: [description]
-Network offline: [description]
-
-## Link to Component Library
-_____________________ (add link here)
-
-## Animations & Interactions
-[interaction] - [result]
-[animation] - [timing]
-
-Animation outcome reference: _____________________ (add link)
-Prototype demo (ProtoPie/Rive): _____________________ (add link)
-Note: Some animations need to be felt (e.g., vibration effects) - try the prototype
-
-## Attachments
-Design specs: _____________________ (add link)
-Assets: _____________________ (add link)
-Other: _____________________ (add link)
-
-RULES: Only these 6 sections. No "Components Used". Edge cases = states of THIS screen (loading, error, empty, success, offline).`;
+RULES: Only these ${sectionCount} sections. No "Components Used". Edge cases = states of THIS screen (loading, error, empty, success, offline).${additionalBlock}`;
   const res = await callAI(currentProvider, apiKey, model, designSystem, projectContext, userMessage, requestIndex);
   return res.text;
 }
@@ -775,25 +666,13 @@ function formatEdgeCaseMarkdown(missingScreens: MissingScreenItem[]): string {
   return lines.join('\n');
 }
 
-/** Parse visual screen spec JSON (new screenshot-based format). */
-function parseVisualScreenSpec(raw: string): VisualScreenSpec | null {
-  // Strip markdown code fences if present
-  let cleaned = raw.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    const parsed = JSON.parse(match[0]) as VisualScreenSpec;
-    if (parsed.name && typeof parsed.width === 'number' && typeof parsed.height === 'number') {
-      return parsed;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-async function handleScanScreens(msgApiKey: string, msgProvider: AIProvider, msgProjectContext: string, msgModel?: string) {
+async function handleScanScreens(
+  msgApiKey: string,
+  msgProvider: AIProvider,
+  msgProjectContext: string,
+  msgModel?: string,
+  msgOptions?: { includePlatformConstraints?: boolean; includeDataLogic?: boolean }
+) {
   console.log('[MAIN] handleScanScreens entered');
   const key = (msgApiKey || apiKey).trim();
   const ctx = (msgProjectContext ?? projectContext).trim();
@@ -808,6 +687,11 @@ async function handleScanScreens(msgApiKey: string, msgProvider: AIProvider, msg
     sendToUI({ type: 'error', message: 'Please set and validate your API key first.' });
     return;
   }
+
+  const options = {
+    includePlatformConstraints: msgOptions?.includePlatformConstraints ?? false,
+    includeDataLogic: msgOptions?.includeDataLogic ?? false,
+  };
 
   const prevKey = apiKey;
   const prevCtx = projectContext;
@@ -831,7 +715,7 @@ async function handleScanScreens(msgApiKey: string, msgProvider: AIProvider, msg
 
     for (let i = 0; i < total; i++) {
       sendProgress(`Analyzing screen ${i + 1} of ${total}...`);
-      const doc = await runScanOneScreen(frameDataList[i], designSystem, i, model);
+      const doc = await runScanOneScreen(frameDataList[i], designSystem, i, model, options);
       docs.push({ name: frameDataList[i].name, content: doc });
     }
 
@@ -845,6 +729,12 @@ async function handleScanScreens(msgApiKey: string, msgProvider: AIProvider, msg
         : { x: figma.viewport.center.x - 187, y: figma.viewport.center.y - 400, width: 375, height: 812 };
       const cards = await createDocCardsForScreen(sourceBounds, content, name);
       createdCards.push(...cards);
+      // Group this screen with its doc cards so they move together
+      if (node && node.parent && 'appendChild' in node.parent && cards.length > 0) {
+        const parent = node.parent as BaseNode & ChildrenMixin;
+        const group = figma.group([node as SceneNode, ...cards], parent);
+        group.name = `${node.name} + Docs`;
+      }
     }
 
     if (createdCards.length > 0) {
@@ -906,16 +796,24 @@ async function handleScanFlow(msgApiKey: string, msgProvider: AIProvider, msgPro
     const bounds = getBounds(nodes);
     const flowCards = await createFlowDocCards(bounds, flowText);
 
-    const hasEdgeCases = missingScreens.length > 0;
-    const flowMsg = hasEdgeCases
-      ? `Flow documentation created — found ${missingScreens.length} missing screen${missingScreens.length !== 1 ? 's' : ''}`
+    // Create missing screen cards on canvas automatically (no user confirmation needed)
+    const allCards: FrameNode[] = [...flowCards];
+    if (missingScreens.length > 0) {
+      sendProgress('Creating missing screen cards on canvas...');
+      const flowCardsBounds = getBounds(flowCards);
+      const missingCards = await createMissingScreenCards(missingScreens, flowCardsBounds);
+      allCards.push(...missingCards);
+    }
+
+    if (allCards.length > 0) {
+      figma.viewport.scrollAndZoomIntoView(allCards);
+    }
+
+    const flowMsg = missingScreens.length > 0
+      ? `Flow documented — found ${missingScreens.length} missing screen${missingScreens.length !== 1 ? 's' : ''}`
       : 'Flow documentation created';
 
     sendToUI({ type: 'scan-complete', section: 'flow', text: flowText, message: flowMsg });
-
-    if (hasEdgeCases) {
-      sendToUI({ type: 'edge-case-result', missingScreens, documentation: edgeDocumentation });
-    }
   } catch (e) {
     console.error('[FlowDoc] handleScanFlow error:', e);
     sendError(e);
@@ -923,17 +821,6 @@ async function handleScanFlow(msgApiKey: string, msgProvider: AIProvider, msgPro
     apiKey = prevKey;
     projectContext = prevCtx;
     currentProvider = prevProv;
-  }
-}
-
-async function handleEdgeCaseDocOnly(documentation: string) {
-  try {
-    console.log('[FlowDoc] Creating edge-case documentation frame');
-    await createDocFrame('edge-cases', documentation, null);
-    console.log('[FlowDoc] Edge-case doc frame created');
-  } catch (e) {
-    console.error('[FlowDoc] handleEdgeCaseDocOnly error:', e);
-    sendError(e);
   }
 }
 
@@ -986,274 +873,8 @@ function validateGeneratedScreen(frame: FrameNode, screenName: string) {
   }
 }
 
-async function handleGenerateMissingScreens(
-  missingScreens: MissingScreenItem[],
-  documentation: string,
-  msgApiKey: string,
-  msgProvider: AIProvider,
-  msgProjectContext: string,
-  msgModel?: string
-) {
-  const key = (msgApiKey || apiKey).trim();
-  const ctx = (msgProjectContext ?? projectContext).trim();
-  if (!key || missingScreens.length === 0) return;
-
-  const prevKey = apiKey;
-  const prevCtx = projectContext;
-  const prevProv = currentProvider;
-  apiKey = key;
-  projectContext = ctx;
-  currentProvider = msgProvider;
-
-  try {
-    const model = msgModel || DEFAULT_MODELS[currentProvider];
-
-    // -----------------------------------------------------------------------
-    // 1. Capture screenshots from cached nodes (original design frames)
-    // -----------------------------------------------------------------------
-    sendProgress('Extracting screenshots from reference screens...');
-    let screenshots = cachedScreenshots;
-
-    // If no cached screenshots, try capturing from cached nodes or current selection
-    if (screenshots.length === 0) {
-      const nodesToCapture = cachedNodes.length > 0
-        ? cachedNodes
-        : getSelectedFramesAndComponents();
-      if (nodesToCapture.length > 0) {
-        screenshots = await captureScreenshots(nodesToCapture);
-        cachedScreenshots = screenshots;
-      }
-    }
-
-    console.log(`[FlowDoc] Captured ${screenshots.length} reference screenshots`);
-
-    // Determine screen size from screenshots or cached data
-    const screenWidth = screenshots[0]?.width
-      ?? cachedDesignSystem?.patterns.frameSizes[0]?.width
-      ?? cachedFrameData?.[0]?.width
-      ?? 375;
-    const screenHeight = screenshots[0]?.height
-      ?? cachedDesignSystem?.patterns.frameSizes[0]?.height
-      ?? cachedFrameData?.[0]?.height
-      ?? 812;
-
-    // Pre-load fonts before building any screens
-    await loadFonts();
-
-    const createdFrames: FrameNode[] = [];
-    const total = missingScreens.length;
-
-    // Build the system prompt for visual generation
-    const visualSystemPrompt = `You are a senior Figma design expert generating production-ready screens that are visually indistinguishable from the reference designs.
-You will receive screenshots of reference screens. Study them pixel-by-pixel to match the visual style exactly.
-Return ONLY valid JSON — no markdown, no code fences, no explanation.`;
-
-    // -----------------------------------------------------------------------
-    // 2. Generate each missing screen
-    // -----------------------------------------------------------------------
-    for (let i = 0; i < total; i++) {
-      const item = missingScreens[i];
-      sendProgress(`Generating screen ${i + 1} of ${total}: ${item.name}...`);
-
-      // Build image attachments
-      const imageAttachments: ImageAttachment[] = screenshots.map((s) => ({
-        base64: s.base64,
-        mediaType: 'image/png' as const,
-      }));
-
-      // Describe which screenshots are provided
-      const screenshotDescriptions = screenshots.map((s) => `- "${s.name}" (${s.width}x${s.height})`).join('\n');
-
-      const userPrompt = `You are generating Figma screens for a mobile app. I'm providing screenshots of existing screens so you can match the visual style EXACTLY.
-
-REFERENCE SCREENSHOTS PROVIDED:
-${screenshotDescriptions}
-
-CRITICAL VISUAL REQUIREMENTS — Match these EXACTLY:
-
-From the reference screenshots, extract and use EXACTLY:
-- The EXACT background color (often dark/black — use the precise color, NOT generic gray)
-- The EXACT card/surface color (often very dark gray like rgb 0.1,0.1,0.1)
-- The EXACT primary accent color (buttons, CTAs — often green, blue, or brand color)
-- The EXACT secondary accent color (progress indicators, highlights)
-- The EXACT text colors: white/near-white for headings, light gray for body
-- The EXACT corner radius on cards and buttons (usually 12-16px)
-- The EXACT spacing rhythm (16px/24px gaps between elements)
-- Drop shadows on elevated cards/elements
-
-YOUR TASK:
-Generate a Figma screen for: ${item.name}
-Purpose: ${item.reason}
-Reference screen: ${item.reference_screen}
-Components needed: ${item.components_needed.join(', ') || 'any matching the visual style'}
-
-DESIGN INSTRUCTIONS:
-
-1. SCREEN STRUCTURE (top to bottom):
-   - Status bar area (44px height) matching the reference
-   - Navigation/header with back button and title
-   - Main content area with proper scrollable layout
-   - Bottom navigation or action area if present in references
-
-2. USE THESE NODE TYPES:
-   - FRAME: containers, cards, buttons, nav bars, list items
-   - RECTANGLE: shapes, dividers, icon placeholders, avatars, badges
-   - TEXT: all text content with proper hierarchy
-   - Apply fills, strokes, effects to match the visual style
-
-3. MAKE EVERY ELEMENT POLISHED:
-   - Cards: dark surface color, 12-16px cornerRadius, subtle shadow, proper padding (16-20px)
-   - Buttons: accent color fill, white text, 12px cornerRadius, 48px height
-   - Text hierarchy: 24-28px bold headings, 16-17px subheadings, 14-15px body, 12-13px captions
-   - Dividers: subtle (0.15 opacity) thin lines
-   - Icon placeholders: small colored rectangles (20-24px) with rounded corners (4-6px)
-   - List items: full-width rows with proper vertical spacing
-
-4. YOU MUST:
-   - Use the EXACT colors from the reference screenshots (not generic grays!)
-   - Create proper card containers with elevation (shadow effects)
-   - Use rounded corners matching the reference (12-16px on cards)
-   - Include proper button styling (accent background, white text, rounded)
-   - Match the spacing rhythm from references (consistent 16/24px gaps)
-   - Create a polished, production-ready design
-
-5. YOU MUST NOT:
-   - Use generic gray (#808080 or rgb 0.5,0.5,0.5) for backgrounds
-   - Create flat/unstyled rectangles without proper fills
-   - Skip rounded corners on cards and buttons
-   - Use default white backgrounds (unless the reference uses white)
-   - Make it look like a wireframe — it must look DESIGNED
-
-6. RETURN VALID JSON with this EXACT structure:
-   {
-     "name": "${item.name}",
-     "width": ${screenWidth},
-     "height": ${screenHeight},
-     "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }],
-     "children": [
-       {
-         "type": "FRAME",
-         "name": "Status Bar",
-         "x": 0, "y": 0,
-         "width": ${screenWidth}, "height": 44,
-         "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }],
-         "children": [
-           { "type": "TEXT", "name": "Time", "characters": "9:41", "fontSize": 15, "fontWeight": "Semibold",
-             "x": 32, "y": 12,
-             "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }] }
-         ]
-       },
-       {
-         "type": "FRAME",
-         "name": "Header",
-         "x": 0, "y": 44,
-         "width": ${screenWidth}, "height": 56,
-         "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }],
-         "layoutMode": "HORIZONTAL",
-         "itemSpacing": 12,
-         "paddingLeft": 16, "paddingRight": 16, "paddingTop": 12, "paddingBottom": 12,
-         "children": [
-           { "type": "RECTANGLE", "name": "Back Arrow", "width": 24, "height": 24, "cornerRadius": 4,
-             "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 }, "opacity": 0.7 }] },
-           { "type": "TEXT", "name": "Title", "characters": "${item.name}", "fontSize": 20, "fontWeight": "Bold",
-             "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }] }
-         ]
-       }
-     ]
-   }
-
-   Continue building the full screen with content cards, lists, buttons, etc.
-   Use the EXACT visual style from the reference screenshots.
-
-7. COLOR FORMAT — RGB 0-1:
-   - Pure black: { "r": 0, "g": 0, "b": 0 }
-   - Dark surface: { "r": 0.1, "g": 0.1, "b": 0.1 }
-   - White: { "r": 1, "g": 1, "b": 1 }
-   - Light gray text: { "r": 0.7, "g": 0.7, "b": 0.7 }
-   Extract exact colors from screenshots and convert to RGB 0-1.
-
-The generated screen MUST be indistinguishable in visual quality from the reference. It should look like it was designed by the same designer.
-
-Return ONLY the JSON object. No explanation, no markdown.`;
-
-      let res: { text: string };
-      if (imageAttachments.length > 0) {
-        // Use vision API with screenshots
-        res = await callAIWithImages(currentProvider, apiKey, model, visualSystemPrompt, userPrompt, imageAttachments);
-      } else {
-        // Fallback: text-only with design system summary
-        const designSystem = cachedDesignSystem ?? getEmptyDesignSystem();
-        const frameDataList = cachedFrameData ?? [];
-        const dsSummary = summarizeDesignSystem(designSystem, frameDataList);
-        const fallbackPrompt = userPrompt + '\n\nDESIGN SYSTEM DATA:\n' + dsSummary;
-        res = await callAI(currentProvider, apiKey, model, designSystem, projectContext, fallbackPrompt, i);
-      }
-
-      // Parse the visual spec JSON
-      const visualSpec = parseVisualScreenSpec(res.text);
-      if (!visualSpec) {
-        // Retry once
-        let retryRes: { text: string };
-        if (imageAttachments.length > 0) {
-          retryRes = await callAIWithImages(currentProvider, apiKey, model, visualSystemPrompt, userPrompt, imageAttachments);
-        } else {
-          const designSystem = cachedDesignSystem ?? getEmptyDesignSystem();
-          retryRes = await callAI(currentProvider, apiKey, model, designSystem, projectContext, userPrompt, i);
-        }
-        const retrySpec = parseVisualScreenSpec(retryRes.text);
-        if (!retrySpec) {
-          sendToUI({ type: 'error', message: `Could not parse screen layout for "${item.name}". Skipping.` });
-          continue;
-        }
-        // Use the retry result
-        const refNode = findFrameByName(item.reference_screen);
-        const refBounds = refNode && 'absoluteBoundingBox' in refNode && refNode.absoluteBoundingBox
-          ? { x: refNode.absoluteBoundingBox.x, y: refNode.absoluteBoundingBox.y, width: refNode.absoluteBoundingBox.width, height: refNode.absoluteBoundingBox.height }
-          : null;
-        const frame = await buildVisualScreen(retrySpec, refBounds);
-        createdFrames.push(frame);
-        continue;
-      }
-
-      // Build the screen
-      const refNode = findFrameByName(item.reference_screen);
-      const refBounds = refNode && 'absoluteBoundingBox' in refNode && refNode.absoluteBoundingBox
-        ? { x: refNode.absoluteBoundingBox.x, y: refNode.absoluteBoundingBox.y, width: refNode.absoluteBoundingBox.width, height: refNode.absoluteBoundingBox.height }
-        : null;
-      const frame = await buildVisualScreen(visualSpec, refBounds);
-      createdFrames.push(frame);
-
-      // Visual validation: warn if screen doesn't match expected style
-      validateGeneratedScreen(frame, item.name);
-    }
-
-    // -----------------------------------------------------------------------
-    // 3. Finalize: select, scroll, create documentation
-    // -----------------------------------------------------------------------
-    if (createdFrames.length > 0) {
-      figma.currentPage.selection = createdFrames;
-      figma.viewport.scrollAndZoomIntoView(createdFrames);
-    }
-
-    sendProgress('Creating edge case documentation on canvas...');
-    const formattedDoc = formatEdgeCaseMarkdown(missingScreens);
-    const bounds = createdFrames.length > 0 ? getBounds(createdFrames) : null;
-    await createDocFrame('edge-cases', formattedDoc, bounds);
-
-    const msg = `Done! Created ${createdFrames.length} screen${createdFrames.length !== 1 ? 's' : ''} and documentation`;
-    sendToUI({ type: 'screens-created', count: createdFrames.length, message: msg });
-  } catch (e) {
-    console.error('[FlowDoc] handleGenerateMissingScreens error:', e);
-    sendError(e);
-  } finally {
-    apiKey = prevKey;
-    projectContext = prevCtx;
-    currentProvider = prevProv;
-  }
-}
-
 export default function main() {
-  figma.showUI(__html__, { width: 440, height: 560 });
+  figma.showUI(__html__, { width: 440, height: 680 });
 
   figma.on('selectionchange', () => {
     updateSelectionCount();
@@ -1261,7 +882,7 @@ export default function main() {
   updateSelectionCount();
 
   console.log('[MAIN] Message handler registered');
-  figma.ui.onmessage = (msgOrPayload: UIMessage | { pluginMessage?: UIMessage }, _props?: unknown) => {
+  figma.ui.onmessage = async (msgOrPayload: UIMessage | { pluginMessage?: UIMessage }, _props?: unknown) => {
     const msg: UIMessage = (msgOrPayload != null && typeof msgOrPayload === 'object' && 'pluginMessage' in msgOrPayload)
       ? (msgOrPayload as { pluginMessage: UIMessage }).pluginMessage
       : (msgOrPayload as UIMessage);
@@ -1299,7 +920,10 @@ export default function main() {
         }
         case 'scan-screens':
           console.log('[MAIN] Starting scan-screens handler');
-          handleScanScreens(msg.apiKey, msg.provider, msg.projectContext ?? '', msg.model).catch((e) => {
+          handleScanScreens(msg.apiKey, msg.provider, msg.projectContext ?? '', msg.model, {
+            includePlatformConstraints: msg.includePlatformConstraints,
+            includeDataLogic: msg.includeDataLogic,
+          }).catch((e) => {
             console.error('[MAIN] handleScanScreens rejection:', e);
             sendError(e);
           });
@@ -1307,18 +931,6 @@ export default function main() {
         case 'scan-flow':
           handleScanFlow(msg.apiKey, msg.provider, msg.projectContext ?? '', msg.model).catch((e) => {
             console.error('[FlowDoc] handleScanFlow rejection:', e);
-            sendError(e);
-          });
-          break;
-        case 'edge-case-doc-only':
-          handleEdgeCaseDocOnly(msg.documentation).catch((e) => {
-            console.error('[FlowDoc] handleEdgeCaseDocOnly rejection:', e);
-            sendError(e);
-          });
-          break;
-        case 'generate-missing-screens':
-          handleGenerateMissingScreens(msg.missingScreens, msg.documentation, msg.apiKey, msg.provider, msg.projectContext ?? '', msg.model).catch((e) => {
-            console.error('[FlowDoc] handleGenerateMissingScreens rejection:', e);
             sendError(e);
           });
           break;

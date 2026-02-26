@@ -66,6 +66,39 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+/** Map AI-generated alignment values (which may use CSS names) to valid Figma enums. */
+function sanitizePrimaryAlign(
+  value: string
+): 'MIN' | 'MAX' | 'CENTER' | 'SPACE_BETWEEN' {
+  const map: Record<string, 'MIN' | 'MAX' | 'CENTER' | 'SPACE_BETWEEN'> = {
+    MIN: 'MIN',
+    MAX: 'MAX',
+    CENTER: 'CENTER',
+    SPACE_BETWEEN: 'SPACE_BETWEEN',
+    FLEX_START: 'MIN',
+    FLEX_END: 'MAX',
+    'flex-start': 'MIN',
+    'flex-end': 'MAX',
+    center: 'CENTER',
+    'space-between': 'SPACE_BETWEEN',
+  };
+  return map[value] ?? 'MIN';
+}
+
+function sanitizeCounterAlign(value: string): 'MIN' | 'CENTER' | 'MAX' {
+  const map: Record<string, 'MIN' | 'CENTER' | 'MAX'> = {
+    MIN: 'MIN',
+    MAX: 'MAX',
+    CENTER: 'CENTER',
+    FLEX_START: 'MIN',
+    FLEX_END: 'MAX',
+    'flex-start': 'MIN',
+    'flex-end': 'MAX',
+    center: 'CENTER',
+  };
+  return map[value] ?? 'MIN';
+}
+
 /** Build a complete screen frame from a VisualScreenSpec. */
 export async function buildVisualScreen(
   spec: VisualScreenSpec,
@@ -159,8 +192,12 @@ function buildFrame(spec: VisualSpecChild): FrameNode {
     if (spec.paddingRight != null) frame.paddingRight = spec.paddingRight;
     if (spec.paddingBottom != null) frame.paddingBottom = spec.paddingBottom;
     if (spec.paddingLeft != null) frame.paddingLeft = spec.paddingLeft;
-    if (spec.primaryAxisAlignItems) frame.primaryAxisAlignItems = spec.primaryAxisAlignItems;
-    if (spec.counterAxisAlignItems) frame.counterAxisAlignItems = spec.counterAxisAlignItems;
+    if (spec.primaryAxisAlignItems) {
+      frame.primaryAxisAlignItems = sanitizePrimaryAlign(spec.primaryAxisAlignItems);
+    }
+    if (spec.counterAxisAlignItems) {
+      frame.counterAxisAlignItems = sanitizeCounterAlign(spec.counterAxisAlignItems);
+    }
     frame.primaryAxisSizingMode = 'FIXED';
     frame.counterAxisSizingMode = 'FIXED';
   }

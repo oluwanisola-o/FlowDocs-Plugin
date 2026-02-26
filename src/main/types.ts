@@ -5,10 +5,16 @@ export type AIProvider = 'anthropic' | 'openai' | 'google';
  */
 export type UIMessage =
   | { type: 'set-api-key'; key: string; provider: AIProvider; projectContext?: string }
-  | { type: 'scan-screens'; apiKey: string; provider: AIProvider; projectContext?: string; model?: string }
+  | {
+      type: 'scan-screens';
+      apiKey: string;
+      provider: AIProvider;
+      projectContext?: string;
+      model?: string;
+      includePlatformConstraints?: boolean;
+      includeDataLogic?: boolean;
+    }
   | { type: 'scan-flow'; apiKey: string; provider: AIProvider; projectContext?: string; model?: string }
-  | { type: 'edge-case-doc-only'; documentation: string }
-  | { type: 'generate-missing-screens'; missingScreens: MissingScreenItem[]; documentation: string; apiKey: string; provider: AIProvider; projectContext?: string; model?: string }
   | { type: 'test-connection' };
 
 /**
@@ -18,7 +24,6 @@ export type MainMessage =
   | { type: 'selection-changed'; count: number }
   | { type: 'progress'; message: string }
   | { type: 'scan-complete'; section: DocSection; text: string; message: string }
-  | { type: 'edge-case-result'; missingScreens: MissingScreenItem[]; documentation: string }
   | { type: 'screens-created'; count: number; message: string }
   | { type: 'error'; message: string }
   | { type: 'api-key-valid' }
@@ -174,5 +179,6 @@ export interface FrameScreenshot {
   name: string;
   width: number;
   height: number;
-  base64: string; // PNG base64 (no data: prefix)
+  base64: string; // base64 (no data: prefix)
+  mediaType: 'image/png' | 'image/jpeg';
 }

@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "plugma dev --port 3002",
+    "proxy": "node scripts/standalone-proxy.mjs",
     "build": "plugma build",
     "release": "plugma release",
     "lint": "tsc --noEmit",

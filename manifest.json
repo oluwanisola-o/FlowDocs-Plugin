@@ -1,6 +1,6 @@
 {
   "name": "FlowDoc",
-  "id": "flowdoc-figma-plugin",
+  "id": "1606752374056586720",
   "api": "1.0.0",
   "main": "src/main/main.ts",
   "ui": "src/ui/ui.tsx",
@@ -10,12 +10,8 @@
     "allowedDomains": [
       "https://api.anthropic.com",
       "https://api.openai.com",
-      "https://generativelanguage.googleapis.com",
-      "http://localhost:3001",
-      "http://localhost:3002",
-      "ws://localhost:3002",
-      "http://localhost:7242"
+      "https://generativelanguage.googleapis.com","http://localhost:3001","https://YOUR-APP.vercel.app"
     ],
-    "reasoning": "AI APIs for documentation generation. localhost:3001 is the dev CORS proxy. localhost:3002 is the plugma dev server (fixed port for Figma CSP)."
+    "reasoning": "Plugin calls AI APIs for documentation generation. Users provide their own API keys."
   }
 }

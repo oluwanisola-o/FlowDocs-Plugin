@@ -5,22 +5,14 @@
  * NO fetch(). ONLY parent.postMessage.
  */
 import { useState, useEffect, useRef } from 'react';
+import WelcomeScreen from './WelcomeScreen';
 
 type AIProvider = 'anthropic' | 'openai' | 'google';
-
-type MissingScreenItem = {
-  name: string;
-  reason: string;
-  components_needed: string[];
-  severity: 'high' | 'medium' | 'low';
-  reference_screen: string;
-};
 
 type MainMessage =
   | { type: 'selection-changed'; count: number }
   | { type: 'progress'; message: string }
   | { type: 'scan-complete'; section: string; text: string; message: string }
-  | { type: 'edge-case-result'; missingScreens: MissingScreenItem[]; documentation: string }
   | { type: 'screens-created'; count: number; message: string }
   | { type: 'error'; message: string }
   | { type: 'api-key-valid' }
@@ -85,6 +77,10 @@ const STORAGE_KEYS = {
   provider: 'flowdoc_provider',
   model: 'flowdoc_model',
   projectContext: 'flowdoc_project_context',
+  firstLaunch: 'flowdoc_first_launch',
+  includePlatformConstraints: 'flowdoc_include_platform',
+  includeDataLogic: 'flowdoc_include_data_logic',
+  hasCompletedHandoffScan: 'flowdoc_has_completed_handoff_scan',
 } as const;
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -105,11 +101,33 @@ function saveToStorage(key: string, value: unknown) {
 }
 
 export default function App() {
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      return !localStorage.getItem(STORAGE_KEYS.firstLaunch);
+    } catch {
+      return false;
+    }
+  });
+
+  const handleWelcomeDismiss = () => {
+    try { localStorage.setItem(STORAGE_KEYS.firstLaunch, 'seen'); } catch { /* ignore */ }
+    setShowWelcome(false);
+  };
+
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>(
     () => loadFromStorage<AIProvider>(STORAGE_KEYS.provider, 'anthropic')
   );
   const [apiKey, setApiKey] = useState(
     () => loadFromStorage<string>(STORAGE_KEYS.apiKey, '')
+  );
+  const [includePlatformConstraints, setIncludePlatformConstraints] = useState(
+    () => loadFromStorage<boolean>(STORAGE_KEYS.includePlatformConstraints, false)
+  );
+  const [includeDataLogic, setIncludeDataLogic] = useState(
+    () => loadFromStorage<boolean>(STORAGE_KEYS.includeDataLogic, false)
+  );
+  const [hasCompletedHandoffScan, setHasCompletedHandoffScan] = useState(
+    () => loadFromStorage<boolean>(STORAGE_KEYS.hasCompletedHandoffScan, false)
   );
   const [selectedModel, setSelectedModel] = useState(
     () => loadFromStorage<string>(STORAGE_KEYS.model, PROVIDERS[0].models[0].value)
@@ -123,10 +141,6 @@ export default function App() {
   const [scanProgress, setScanProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [edgeCaseResult, setEdgeCaseResult] = useState<{
-    missingScreens: MissingScreenItem[];
-    documentation: string;
-  } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Pending action to execute after successful API key validation
@@ -141,6 +155,15 @@ export default function App() {
   // message handler without stale closures.
   const executeScanScreensRef = useRef<() => void>(() => {});
   const executeScanFlowRef = useRef<() => void>(() => {});
+
+  // ---------------------------------------------------------------------------
+  // Auto-dismiss success messages after 3 seconds
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!successMessage) return;
+    const timer = setTimeout(() => setSuccessMessage(null), 3000);
+    return () => clearTimeout(timer);
+  }, [successMessage]);
 
   // ---------------------------------------------------------------------------
   // Mount/unmount logging — helps diagnose unwanted reloads during generation
@@ -197,19 +220,23 @@ export default function App() {
           setScanProgress('');
           setIsScanning(false);
           setError(null);
-          break;
-        case 'edge-case-result':
-          setEdgeCaseResult({ missingScreens: msg.missingScreens, documentation: msg.documentation });
+          if (msg.section === 'screens') {
+            setHasCompletedHandoffScan(true);
+            try {
+              saveToStorage(STORAGE_KEYS.hasCompletedHandoffScan, true);
+            } catch {
+              /* ignore */
+            }
+          }
           break;
         case 'screens-created':
           setSuccessMessage(msg.message);
-          setEdgeCaseResult(null);
           setScanProgress('');
           setIsScanning(false);
           setError(null);
           break;
         case 'error':
-          setError(msg.message);
+          setError(msg.message === '[object Object]' ? 'Something went wrong. Please try again.' : msg.message);
           setScanProgress('');
           setIsScanning(false);
           break;
@@ -226,7 +253,7 @@ export default function App() {
           break;
         case 'api-key-error':
           setIsConnected(false);
-          setError(msg.message);
+          setError(msg.message === '[object Object]' ? 'Invalid API key or format.' : msg.message);
           setIsScanning(false);
           setScanProgress('');
           pendingActionRef.current = null;
@@ -288,11 +315,20 @@ export default function App() {
     console.log('[UI] Sending scan-screens message');
     setError(null);
     setSuccessMessage(null);
-    setEdgeCaseResult(null);
     setIsScanning(true);
     setScanProgress('Starting...');
     parent.postMessage(
-      { pluginMessage: { type: 'scan-screens', apiKey, provider: selectedProvider, projectContext, model: selectedModel } },
+      {
+        pluginMessage: {
+          type: 'scan-screens',
+          apiKey,
+          provider: selectedProvider,
+          projectContext,
+          model: selectedModel,
+          includePlatformConstraints,
+          includeDataLogic,
+        },
+      },
       '*'
     );
     console.log('[UI] Message sent');
@@ -301,7 +337,6 @@ export default function App() {
   const executeScanFlow = () => {
     setError(null);
     setSuccessMessage(null);
-    setEdgeCaseResult(null);
     setIsScanning(true);
     setScanProgress('Analyzing flow...');
     parent.postMessage(
@@ -342,30 +377,13 @@ export default function App() {
     }
   };
 
-  const handleCreateMissingScreens = () => {
-    if (!edgeCaseResult || edgeCaseResult.missingScreens.length === 0) return;
-    setSuccessMessage(null);
-    setIsScanning(true);
-    setScanProgress('Generating screens...');
-    parent.postMessage(
-      {
-        pluginMessage: {
-          type: 'generate-missing-screens',
-          missingScreens: edgeCaseResult.missingScreens,
-          documentation: edgeCaseResult.documentation,
-          apiKey,
-          provider: selectedProvider,
-          projectContext,
-          model: selectedModel,
-        },
-      },
-      '*'
-    );
-  };
-
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+  if (showWelcome) {
+    return <WelcomeScreen onGetStarted={handleWelcomeDismiss} />;
+  }
+
   return (
     <div className="app">
       {/* Loading overlay — prevents white flash, keeps form visible behind */}
@@ -484,6 +502,39 @@ export default function App() {
         <p className="hint">Select frames or components in Figma to scan.</p>
       </section>
 
+      {/* Documentation options — below selection, always visible */}
+      <section className="section">
+        <p className="label" style={{ marginBottom: 8 }}>Documentation options</p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            className="checkbox-circle"
+            checked={includePlatformConstraints}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setIncludePlatformConstraints(v);
+              saveToStorage(STORAGE_KEYS.includePlatformConstraints, v);
+            }}
+            disabled={isScanning}
+          />
+          <span>Include Platform Constraints (iOS/Android)</span>
+        </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            className="checkbox-circle"
+            checked={includeDataLogic}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setIncludeDataLogic(v);
+              saveToStorage(STORAGE_KEYS.includeDataLogic, v);
+            }}
+            disabled={isScanning}
+          />
+          <span>Include Data Logic & Edge Cases</span>
+        </label>
+      </section>
+
       {/* Action buttons */}
       <section className="section actions">
         <button
@@ -511,33 +562,6 @@ export default function App() {
         <section className="section progress">
           <div className="progress-bar" />
           <p className="progress-text">{scanProgress}</p>
-        </section>
-      )}
-
-      {/* Missing screens panel */}
-      {edgeCaseResult && !isScanning && edgeCaseResult.missingScreens.length > 0 && (
-        <section className="section edge-results">
-          <h3 className="edge-results-title">
-            Found {edgeCaseResult.missingScreens.length} missing screen
-            {edgeCaseResult.missingScreens.length !== 1 ? 's' : ''}
-          </h3>
-          <ul className="missing-list">
-            {edgeCaseResult.missingScreens.map((item, i) => (
-              <li key={i} className={`missing-item missing-item--${item.severity}`}>
-                <span className="missing-name">{item.name}</span>
-                <span className={`severity severity-${item.severity}`}>{item.severity}</span>
-                <p className="missing-reason">{item.reason}</p>
-              </li>
-            ))}
-          </ul>
-          <div className="edge-actions">
-            <button type="button" className="button button-primary" onClick={handleCreateMissingScreens}>
-              Create Missing Screens
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => setEdgeCaseResult(null)}>
-              Dismiss
-            </button>
-          </div>
         </section>
       )}
 
