@@ -25,8 +25,8 @@ const PROXY_BASE =
     ? 'http://localhost:3001'
     : '';
 
-/** Production: Vercel backend proxy (single envelope endpoint). Replace YOUR-APP with your Vercel app name. */
-const PRODUCTION_PROXY_BASE = 'https://YOUR-APP.vercel.app';
+/** Production: Vercel backend proxy (single envelope endpoint). */
+const PRODUCTION_PROXY_BASE = 'https://flow-docs-plugin.vercel.app';
 
 /** Per-provider API endpoints. Dev: localhost path-based; production: use Vercel proxy via callViaVercelProxy. */
 function getEndpoint(prov: AIProvider, model?: string, apiKey?: string): string {

@@ -17,7 +17,7 @@ function cors(res) {
   Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   cors(res);
 
   if (req.method === 'OPTIONS') {

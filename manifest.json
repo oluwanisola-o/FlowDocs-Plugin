@@ -10,7 +10,7 @@
     "allowedDomains": [
       "https://api.anthropic.com",
       "https://api.openai.com",
-      "https://generativelanguage.googleapis.com","http://localhost:3001","https://YOUR-APP.vercel.app"
+      "https://generativelanguage.googleapis.com","http://localhost:3001","https://flow-docs-plugin.vercel.app"
     ],
     "reasoning": "Plugin calls AI APIs for documentation generation. Users provide their own API keys."
   }
