@@ -310,7 +310,15 @@ async function callAI(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getUserFriendlyError(error: unknown): string {
+const PROVIDER_LABELS: Record<AIProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+};
+
+/** Maps API status codes and error messages to plain English. Include provider when available. */
+function getUserFriendlyError(error: unknown, provider?: AIProvider): string {
+  const label = provider ? PROVIDER_LABELS[provider] : 'API';
   let message: string;
   if (error instanceof Error) {
     message = error.message || 'Unknown error';
@@ -327,38 +335,69 @@ function getUserFriendlyError(error: unknown): string {
     message = String(error) || 'Unknown error';
   }
   if (message === '[object Object]') message = 'Something went wrong. Please try again.';
-  if (message.includes('401') || message.toLowerCase().includes('invalid api key') || message.toLowerCase().includes('incorrect api key')) {
-    return 'Invalid API key. Please check your key and try again.';
+  const lower = message.toLowerCase();
+
+  // 401 Unauthorized
+  if (message.includes('401') || lower.includes('invalid api key') || lower.includes('incorrect api key')) {
+    return `${label}: Invalid API key. Please check your key and try again.`;
   }
-  if (message.includes('402') || message.toLowerCase().includes('credit') || message.toLowerCase().includes('quota')) {
-    return 'Insufficient API credits. Please check your account billing.';
-  }
-  if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
+  // 429 Too Many Requests
+  if (message.includes('429') || lower.includes('rate limit')) {
     return 'Rate limit reached. Please wait a moment and try again.';
   }
-  if (message.includes('529') || message.includes('503') || message.toLowerCase().includes('overloaded')) {
-    return 'AI service is overloaded. Please try again in a few seconds.';
+  // 402 Payment Required / insufficient_quota
+  if (
+    message.includes('402') ||
+    lower.includes('insufficient_quota') ||
+    lower.includes('credit') ||
+    lower.includes('quota')
+  ) {
+    return `Insufficient API credits. Please add credits to your ${label} account.`;
   }
+  // 400 Bad Request
+  if (message.includes('400')) {
+    return 'Request error. Please check your settings.';
+  }
+  // 500 / 502 / 503 Server Error
+  if (
+    message.includes('500') ||
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('529') ||
+    lower.includes('overloaded')
+  ) {
+    return `${label} is experiencing issues. Please try again in a few minutes.`;
+  }
+  // API error NNN pattern (from our throw new Error(`API error ${response.status}: ...`))
   if (message.includes('API error')) {
     const match = message.match(/API error (\d+)/);
     if (match) {
       const code = match[1];
-      if (code === '401') return 'Invalid API key. Please check your key and try again.';
-      if (code === '402') return 'Insufficient API credits. Please check your account billing.';
+      if (code === '401') return `${label}: Invalid API key. Please check your key and try again.`;
+      if (code === '402') return `Insufficient API credits. Please add credits to your ${label} account.`;
       if (code === '429') return 'Rate limit reached. Please wait a moment and try again.';
-      if (code === '503' || code === '529') return 'AI service is overloaded. Please try again in a few seconds.';
+      if (code === '400') return 'Request error. Please check your settings.';
+      if (code === '500' || code === '502' || code === '503' || code === '529')
+        return `${label} is experiencing issues. Please try again in a few minutes.`;
     }
   }
-  if (message.toLowerCase().includes('no frames selected') || message.toLowerCase().includes('selection')) {
+  // Network timeout
+  if (lower.includes('timeout') || lower.includes('timed out')) {
+    return 'Request timed out. Please check your connection and try again.';
+  }
+  // CORS / fetch failed
+  if (
+    error instanceof TypeError && (message.includes('fetch') || message.includes('Failed to fetch'))
+  ) {
+    return 'Connection error. Please check your internet connection.';
+  }
+  if (lower.includes('cors') || lower.includes('failed to fetch') || lower.includes('network')) {
+    return 'Connection error. Please check your internet connection.';
+  }
+  if (lower.includes('no frames selected') || lower.includes('selection')) {
     return 'Please select at least one frame to scan.';
   }
-  if (error instanceof TypeError && message.includes('fetch')) {
-    return 'Network error. Please check your internet connection.';
-  }
-  if (message.toLowerCase().includes('network')) {
-    return 'Network error. Please check your internet connection.';
-  }
-  if (message.includes('JSON') || message.includes('parse')) {
+  if (message.includes('JSON') || lower.includes('parse')) {
     return 'Error parsing AI response. Please try again.';
   }
   return message.length > 300 ? `Error: ${message.slice(0, 297)}...` : `Error: ${message}`;
@@ -393,12 +432,16 @@ function sendToUI(msg: MainMessage) {
   figma.ui.postMessage(msg);
 }
 
-function sendProgress(message: string) {
-  sendToUI({ type: 'progress', message });
+function sendProgress(message: string, current?: number, total?: number) {
+  sendToUI(
+    current !== undefined && total !== undefined
+      ? { type: 'progress', message, current, total }
+      : { type: 'progress', message }
+  );
 }
 
 function sendError(error: unknown) {
-  sendToUI({ type: 'error', message: getUserFriendlyError(error) });
+  sendToUI({ type: 'error', message: getUserFriendlyError(error, currentProvider) });
 }
 
 function updateSelectionCount() {
@@ -713,10 +756,21 @@ async function handleScanScreens(
     const createdCards: FrameNode[] = [];
     const docs: { name: string; content: string }[] = [];
 
-    for (let i = 0; i < total; i++) {
-      sendProgress(`Analyzing screen ${i + 1} of ${total}...`);
-      const doc = await runScanOneScreen(frameDataList[i], designSystem, i, model, options);
-      docs.push({ name: frameDataList[i].name, content: doc });
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 2000;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = frameDataList.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((frameData, j) => runScanOneScreen(frameData, designSystem, i + j, model, options))
+      );
+      for (let j = 0; j < batch.length; j++) {
+        docs.push({ name: batch[j].name, content: batchResults[j] });
+      }
+      const processed = Math.min(i + BATCH_SIZE, total);
+      sendProgress(`Processing ${processed}/${total} frames...`, processed, total);
+      if (i + BATCH_SIZE < total) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+      }
     }
 
     sendProgress('Creating documentation cards...');

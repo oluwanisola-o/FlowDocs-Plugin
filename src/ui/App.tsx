@@ -11,7 +11,7 @@ type AIProvider = 'anthropic' | 'openai' | 'google';
 
 type MainMessage =
   | { type: 'selection-changed'; count: number }
-  | { type: 'progress'; message: string }
+  | { type: 'progress'; message: string; current?: number; total?: number }
   | { type: 'scan-complete'; section: string; text: string; message: string }
   | { type: 'screens-created'; count: number; message: string }
   | { type: 'error'; message: string }
@@ -139,6 +139,8 @@ export default function App() {
   const [selectedFrameCount, setSelectedFrameCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
+  const [progressCurrent, setProgressCurrent] = useState<number | null>(null);
+  const [progressTotal, setProgressTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -212,12 +214,16 @@ export default function App() {
           break;
         case 'progress':
           setScanProgress(msg.message);
+          setProgressCurrent(msg.current ?? null);
+          setProgressTotal(msg.total ?? null);
           setError(null);
           break;
         case 'scan-complete':
           console.log('[UI] Received message from main: scan-complete');
           setSuccessMessage(msg.message);
           setScanProgress('');
+          setProgressCurrent(null);
+          setProgressTotal(null);
           setIsScanning(false);
           setError(null);
           if (msg.section === 'screens') {
@@ -232,12 +238,16 @@ export default function App() {
         case 'screens-created':
           setSuccessMessage(msg.message);
           setScanProgress('');
+          setProgressCurrent(null);
+          setProgressTotal(null);
           setIsScanning(false);
           setError(null);
           break;
         case 'error':
           setError(msg.message === '[object Object]' ? 'Something went wrong. Please try again.' : msg.message);
           setScanProgress('');
+          setProgressCurrent(null);
+          setProgressTotal(null);
           setIsScanning(false);
           break;
         case 'api-key-valid':
@@ -256,6 +266,8 @@ export default function App() {
           setError(msg.message === '[object Object]' ? 'Invalid API key or format.' : msg.message);
           setIsScanning(false);
           setScanProgress('');
+          setProgressCurrent(null);
+          setProgressTotal(null);
           pendingActionRef.current = null;
           break;
         case 'test-response':
@@ -315,6 +327,8 @@ export default function App() {
     console.log('[UI] Sending scan-screens message');
     setError(null);
     setSuccessMessage(null);
+    setProgressCurrent(null);
+    setProgressTotal(null);
     setIsScanning(true);
     setScanProgress('Starting...');
     parent.postMessage(
@@ -337,6 +351,8 @@ export default function App() {
   const executeScanFlow = () => {
     setError(null);
     setSuccessMessage(null);
+    setProgressCurrent(null);
+    setProgressTotal(null);
     setIsScanning(true);
     setScanProgress('Analyzing flow...');
     parent.postMessage(
@@ -359,6 +375,8 @@ export default function App() {
       executeScanScreens();
     } else {
       pendingActionRef.current = 'scan-screens';
+      setProgressCurrent(null);
+      setProgressTotal(null);
       setIsScanning(true);
       setScanProgress('Validating API key...');
       validateApiKey();
@@ -371,6 +389,8 @@ export default function App() {
       executeScanFlow();
     } else {
       pendingActionRef.current = 'scan-flow';
+      setProgressCurrent(null);
+      setProgressTotal(null);
       setIsScanning(true);
       setScanProgress('Validating API key...');
       validateApiKey();
@@ -393,6 +413,14 @@ export default function App() {
             <div className="loading-spinner" aria-hidden="true" />
             <p className="loading-overlay-title">Generating documentation...</p>
             <p className="loading-overlay-progress">{scanProgress || 'Starting...'}</p>
+            {progressCurrent != null && progressTotal != null && progressTotal > 0 && (
+              <div className="loading-overlay-bar-wrap" aria-hidden="true">
+                <div
+                  className="loading-overlay-bar"
+                  style={{ width: `${Math.round((progressCurrent / progressTotal) * 100)}%` }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

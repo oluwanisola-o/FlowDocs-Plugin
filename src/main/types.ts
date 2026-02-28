@@ -22,7 +22,7 @@ export type UIMessage =
  */
 export type MainMessage =
   | { type: 'selection-changed'; count: number }
-  | { type: 'progress'; message: string }
+  | { type: 'progress'; message: string; current?: number; total?: number }
   | { type: 'scan-complete'; section: DocSection; text: string; message: string }
   | { type: 'screens-created'; count: number; message: string }
   | { type: 'error'; message: string }
